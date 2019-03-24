@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from dbt.adapters.base import Credentials
 from dbt.adapters.sql import SQLConnectionManager
 from dbt.logger import GLOBAL_LOGGER as logger
+from dbt.compat import DECIMALS
 import dbt.exceptions
 
 from pyhive import hive
@@ -82,10 +83,19 @@ class ConnectionWrapper(object):
     def fetchall(self):
         return self._cursor.fetchall()
 
+    @classmethod
+    def _render_value(cls, value):
+        if isinstance(value, DECIMALS):
+            return float(value)
+        else:
+            return value
+
     def execute(self, sql, bindings=None):
         if sql.strip().endswith(";"):
             sql = sql.strip()[:-1]
 
+        if bindings:
+            bindings = [self._render_value(b) for b in bindings]
         return self._cursor.execute(sql, bindings)
 
     @property

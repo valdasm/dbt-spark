@@ -71,13 +71,14 @@ class SparkAdapter(SQLAdapter):
             'identifier': True
         }
         for _database, name, _ in results:
-            relations.append(self.Relation.create(
+            rel = self.Relation.create(
                 database=_database,
                 schema=_database,
                 identifier=name,
                 quote_policy=quote_policy,
-                type=None
-            ))
+            )
+            rel.type = self.get_relation_type(rel)
+            relations.append(rel)
         return relations
 
     # Override that doesn't check the type of the relation -- we do it 
