@@ -169,7 +169,7 @@ class SparkConnectionManager(SQLConnectionManager):
                 elif connection.credentials['method'] == 'thrift':
                     conn = hive.connect(host=connection.credentials['host'],
                                         port=connection.credentials.get('port'),
-                                        username=connection.credentials.get('username'))
+                                        username=connection.credentials.get('user'))
                 break
             except Exception as e:
                 exc = e

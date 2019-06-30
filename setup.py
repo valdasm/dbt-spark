@@ -25,5 +25,7 @@ setup(
         'dbt-core=={}'.format(package_version),
         'PyHive>=0.6.0,<0.7.0',
         'thrift>=0.11.0,<0.12.0'
+        'sasl>=0.2.1,<0.3.0',
+        'thrift-sasl>=0.3.0,<0.4.0',
     ]
 )
