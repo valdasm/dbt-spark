@@ -30,6 +30,8 @@ from typing import Optional
 import base64
 import time
 
+from msal import ConfidentialClientApplication
+
 NUMBERS = DECIMALS + (int, float)
 
 
@@ -42,6 +44,9 @@ class SparkConnectionMethod(StrEnum):
     HTTP = 'http'
     ODBC = 'odbc'
 
+class DatabricksAuthenticationMethod(StrEnum):
+    TOKEN = 'token'
+    AZUREOAUTH = 'azureOAuth'
 
 @dataclass
 class SparkCredentials(Credentials):
@@ -52,7 +57,11 @@ class SparkCredentials(Credentials):
     driver: Optional[str] = None
     cluster: Optional[str] = None
     endpoint: Optional[str] = None
+    authMethod: DatabricksAuthenticationMethod = DatabricksAuthenticationMethod.TOKEN
     token: Optional[str] = None
+    oauth_client_id: Optional[str] = None
+    oauth_client_secret: Optional[str] = None
+    oauth_client_authority: Optional[str] = None
     user: Optional[str] = None
     port: int = 443
     auth: Optional[str] = None
@@ -105,6 +114,53 @@ class SparkCredentials(Credentials):
                 "Install the additional required dependencies with "
                 "`pip install dbt-spark[PyHive]`"
             )
+    
+    def _get_azure_ad_access_token(self) -> str:
+        """   https://msal-python.readthedocs.io/en/latest/#msal.ConfidentialClientApplication  """
+        app = ConfidentialClientApplication(
+            client_id=self.oauth_client_id, 
+            client_credential=self.oauth_client_secret,
+            authority=self.oauth_client_authority)
+
+        result = None
+
+        config = {
+            "scope": ["https://graph.microsoft.com/.default"],
+        }
+
+        if not result:
+            result = app.acquire_token_for_client(scopes=config["scope"])
+
+        if "access_token" not in result:
+            print(result.get("error"))
+            print(result.get("error_description"))
+            print(result.get("correlation_id"))  # You might need this when reporting a bug.
+            raise dbt.exceptions.FailedToConnectException(
+                        'failed to connect to Azure'
+                    )
+        # print("ACCESS TOKEN:"+ result["access_token"])
+        # return result["access_token"]
+        return "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6Im5PbzNaRHJPRFhFSzFqS1doWHNsSFJfS1hFZyIsImtpZCI6Im5PbzNaRHJPRFhFSzFqS1doWHNsSFJfS1hFZyJ9.eyJhdWQiOiIyZmY4MTRhNi0zMzA0LTRhYjgtODVjYi1jZDBlNmY4NzljMWQiLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC8yY2M0ZjZiZS1kMjMzLTQ5NjgtYTkyYy03NGNlMmQyNmFkYjEvIiwiaWF0IjoxNjEzOTEzNTk2LCJuYmYiOjE2MTM5MTM1OTYsImV4cCI6MTYxMzkxNzQ5NiwiYWNyIjoiMSIsImFpbyI6IkFVUUF1LzhUQUFBQWtlbWNtcGpGdEw2NzNEakJPOWtpdHg2eFZiTDVRalNqTExLaGtJa2hMUUE1Q3c0WVNIb0haWG5nc0FGbVdLeDJaV2JucTZkWFc1M2dhZnZRMnhxS2NnPT0iLCJhbHRzZWNpZCI6IjE6bGl2ZS5jb206MDAwM0JGRkQxM0FBQkU3RiIsImFtciI6WyJwd2QiXSwiYXBwaWQiOiI0NTRjZjY3OS1jOGMzLTQ0OTUtOTllMy1jZWMzMjAxNDU4MDkiLCJhcHBpZGFjciI6IjAiLCJlbWFpbCI6InZhbGRhc0BtYWtzaW1hdmljaXVzLmV1IiwiZmFtaWx5X25hbWUiOiIyZGRhMWYzYS0zMjExLTRjMjAtYTdjMC1jYzliMmY3ZmI4NzkiLCJnaXZlbl9uYW1lIjoiZjk1ZWQ5NzgtY2I0My00OThjLWIxNmUtMTU0MGQ5NWYzNDQxIiwiaWRwIjoibGl2ZS5jb20iLCJpcGFkZHIiOiI3OC41OC4yMzcuMTY2IiwibmFtZSI6ImY5NWVkOTc4LWNiNDMtNDk4Yy1iMTZlLTE1NDBkOTVmMzQ0MSAyZGRhMWYzYS0zMjExLTRjMjAtYTdjMC1jYzliMmY3ZmI4NzkiLCJvaWQiOiIwYjRmNWQ3OC03ZTBlLTQyMzItYmI2MS01NjNmZmVlNDlhNzQiLCJwdWlkIjoiMTAwMzAwMDBBQzAwN0U3NyIsInJoIjoiMC5BVEVBdnZiRUxEUFNhRW1wTEhUT0xTYXRzWG4yVEVYRHlKVkVtZVBPd3lBVVdBa3hBSm8uIiwic2NwIjoidXNlcl9pbXBlcnNvbmF0aW9uIiwic3ViIjoiVGNpaS16bXhDUTkxSjdCWVoxdGpKdkVSb0xLQ0FGQ2NPeGYtYmo3QzF3SSIsInRpZCI6IjJjYzRmNmJlLWQyMzMtNDk2OC1hOTJjLTc0Y2UyZDI2YWRiMSIsInVuaXF1ZV9uYW1lIjoibGl2ZS5jb20jdmFsZGFzQG1ha3NpbWF2aWNpdXMuZXUiLCJ1dGkiOiJNZ1JhczNXUVUwQ3R0d0I3cUVCQkFBIiwidmVyIjoiMS4wIn0.PGjS4bHZTMCFQnbBNUUg1w5G9YTem1dfjM3eiBf1-sVPRRyRyUlB28nB7PjYB_GnR235ZmaBkc3TF0mToGUqC43Zky2a0CWlAEmRyzUH85y8RIWzgnEx5cRi7SC46klzqHa78xnQWoihjPCG23VT8bo3nwKH0JziH6DFBmsrFc0wwqMBm4l_xjf_3MgPr5Fk-GzQ_LtryUvxdiATXAjqiK6Zcmm1fPKZZAdizP4EQImfGALbDwjoIdyggyInnZzOGWJjODXPaFMpbNnKM8LWGcpMgNfCeShfWchOSn5JqNvVBMIrsRkuVzo8eDOK_e63YTASncj4ncNRJ4EDtlBQGA"
+
+    def get_odbc_auth_args(self):
+        result = {}
+
+        if self.authMethod == DatabricksAuthenticationMethod.TOKEN:
+            result["UID"] = "token"    
+            result["PWD"] = self.token
+            result["AuthMech"] = 3
+
+        elif self.authMethod == DatabricksAuthenticationMethod.AZUREOAUTH: 
+            result["AuthMech"] = 11
+            result["Auth_Flow"] = 0
+            result["Auth_AccessToken"] = self._get_azure_ad_access_token()   
+
+        else:
+            raise dbt.exceptions.DbtProfileError(
+                f"invalid credential method: {self.authMethod}"
+            )
+    
+        return result
 
     @property
     def type(self):
@@ -300,6 +356,33 @@ class SparkConnectionManager(SQLConnectionManager):
                     " to connect to Spark".format(key, method))
 
     @classmethod
+    def get_spark_cluster_path(cls, creds):
+        http_path = None
+        if creds.cluster is not None:
+            required_fields = ['driver', 'host', 'port', 
+                                'organization', 'cluster']
+            http_path = cls.SPARK_CLUSTER_HTTP_PATH.format(
+                organization=creds.organization,
+                cluster=creds.cluster
+            )
+        elif creds.endpoint is not None:
+            required_fields = ['driver', 'host', 'port', 
+                                'endpoint']
+            http_path = cls.SPARK_SQL_ENDPOINT_HTTP_PATH.format(
+                endpoint=creds.endpoint
+            )
+        else:
+            raise dbt.exceptions.DbtProfileError(
+                "Either `cluster` or `endpoint` must set when"
+                " using the odbc method to connect to Spark"
+            )
+
+        cls.validate_creds(creds, required_fields)
+
+        return http_path
+    
+
+    @classmethod
     def open(cls, connection):
         if connection.state == ConnectionState.OPEN:
             logger.debug('Connection is already open, skipping open.')
@@ -343,28 +426,8 @@ class SparkConnectionManager(SQLConnectionManager):
                                         auth=creds.auth,
                                         kerberos_service_name=creds.kerberos_service_name)  # noqa
                     handle = PyhiveConnectionWrapper(conn)
-                elif creds.method == SparkConnectionMethod.ODBC:
-                    http_path = None
-                    if creds.cluster is not None:
-                        required_fields = ['driver', 'host', 'port', 'token',
-                                           'organization', 'cluster']
-                        http_path = cls.SPARK_CLUSTER_HTTP_PATH.format(
-                            organization=creds.organization,
-                            cluster=creds.cluster
-                        )
-                    elif creds.endpoint is not None:
-                        required_fields = ['driver', 'host', 'port', 'token',
-                                           'endpoint']
-                        http_path = cls.SPARK_SQL_ENDPOINT_HTTP_PATH.format(
-                            endpoint=creds.endpoint
-                        )
-                    else:
-                        raise dbt.exceptions.DbtProfileError(
-                            "Either `cluster` or `endpoint` must set when"
-                            " using the odbc method to connect to Spark"
-                        )
-
-                    cls.validate_creds(creds, required_fields)
+                elif (creds.method == SparkConnectionMethod.ODBC):
+                    http_path = cls.get_spark_cluster_path(creds)
 
                     dbt_spark_version = __version__.version
                     user_agent_entry = f"fishtown-analytics-dbt-spark/{dbt_spark_version} (Databricks)"  # noqa
@@ -374,24 +437,24 @@ class SparkConnectionManager(SQLConnectionManager):
                         DRIVER=creds.driver,
                         HOST=creds.host,
                         PORT=creds.port,
-                        UID="token",
-                        PWD=creds.token,
                         HTTPPath=http_path,
-                        AuthMech=3,
                         SparkServerType=3,
                         ThriftTransport=2,
                         SSL=1,
                         UserAgentEntry=user_agent_entry,
+                        **creds.get_odbc_auth_args()
                     )
 
                     conn = pyodbc.connect(connection_str, autocommit=True)
                     handle = PyodbcConnectionWrapper(conn)
+                
                 else:
                     raise dbt.exceptions.DbtProfileError(
                         f"invalid credential method: {creds.method}"
                     )
                 break
             except Exception as e:
+                print("EXCEPTION: {0}".format(e))
                 exc = e
                 if isinstance(e, EOFError):
                     # The user almost certainly has invalid credentials.
@@ -419,7 +482,6 @@ class SparkConnectionManager(SQLConnectionManager):
         connection.handle = handle
         connection.state = ConnectionState.OPEN
         return connection
-
 
 def _is_retryable_error(exc: Exception) -> Optional[str]:
     message = getattr(exc, 'message', None)

@@ -2,6 +2,8 @@
 .spark-warehouse/
 *.egg-info
 env/
+dbt-env/
+wsl-env/
 *.pyc
 __pycache__
 .tox/
@@ -12,3 +14,6 @@ dbt-integration-tests
 test/integration/.user.yml
 .DS_Store
 .vscode
+temp/
+.env
+.devcontainer

@@ -109,6 +109,25 @@ class TestSparkAdapter(unittest.TestCase):
             },
             'target': 'test'
         })
+    
+    def _get_target_odbc_cluster_azure_ad(self, project):
+        return config_from_parts_or_dicts(project, {
+            'outputs': {
+                'test': {
+                    'type': 'spark',
+                    'method': 'odbc',
+                    'schema': 'analytics',
+                    'host': 'myorg.sparkhost.com',
+                    'port': 443,
+                    'user': 'user123',
+                    'organization': '0123456789',
+                    'cluster': '01234-23423-coffeetime',
+                    'driver': 'Simba',
+                }
+            },
+            'target': 'test'
+        })
+
 
     def test_http_connection(self):
         config = self._get_target_http(self.project_cfg)
@@ -196,6 +215,31 @@ class TestSparkAdapter(unittest.TestCase):
             self.assertEqual(connection.credentials.cluster,
                              '01234-23423-coffeetime')
             self.assertEqual(connection.credentials.token, 'abc123')
+            self.assertEqual(connection.credentials.schema, 'analytics')
+            self.assertIsNone(connection.credentials.database)
+    
+    def test_odbc_cluster_connection_with_azure_ad(self):
+        config = self._get_target_odbc_cluster_azure_ad(self.project_cfg)
+        adapter = SparkAdapter(config)
+
+        def pyodbc_connect(connection_str, autocommit):
+            self.assertTrue(autocommit)
+            self.assertIn('driver=simba;', connection_str.lower())
+            self.assertIn('port=443;', connection_str.lower())
+            self.assertIn('host=myorg.sparkhost.com;',
+                          connection_str.lower())
+            self.assertIn(
+                'httppath=/sql/protocolv1/o/0123456789/01234-23423-coffeetime;', connection_str.lower())  # noqa
+
+        with mock.patch('dbt.adapters.spark.connections.pyodbc.connect', new=pyodbc_connect):  # noqa
+            connection = adapter.acquire_connection('dummy')
+            connection.handle  # trigger lazy-load
+
+            self.assertEqual(connection.state, 'open')
+            self.assertIsNotNone(connection.handle)
+            self.assertEqual(connection.credentials.cluster,
+                             '01234-23423-coffeetime')
+            self.assertEqual(connection.credentials.user, 'user123')
             self.assertEqual(connection.credentials.schema, 'analytics')
             self.assertIsNone(connection.credentials.database)
 
